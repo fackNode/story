@@ -25,10 +25,12 @@ tar zxvf geth-linux-amd64-0.9.2-ea9f0d2.tar.gz --strip-components=1 -C geth_clie
 
 
 # start story client
-cd /root/story_binary/story_client
+sudo chmod +x /root/story_binary/story_client/story /root/story_binary/geth_client/geth
+mv /root/story_binary/story_client/story /usr/local/bin
+mv /root/story_binary/geth_client/geth /usr/local/bin
 echo -e "${fmt}\nInitializing Story client${end}" && sleep 1
-if [ -z "$MONIKER+x" ]; then echo "${err}\nMONIKER is not set${err}" && return; else echo "${fmt}\nMONIKER: $MONIKER ${end}"; fi
-./story init --network iliad --moniker $MONIKER
+if [ -z "$MONIKER" ]; then echo "${err}\nMONIKER is not set${err}" && return; else echo "${fmt}\nMONIKER: $MONIKER ${end}"; fi
+story init --network iliad --moniker $MONIKER
 if [ $? -eq 0 ]; then
     echo -e "${fmt}\nStory client initiated${end}" && sleep 1
 else
@@ -42,7 +44,7 @@ After=network-online.target
 [Service]
 User=root
 WorkingDirectory=/root/story_binary/story_client
-ExecStart=/root/story_binary/story_client/story run
+ExecStart=story run
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65535
@@ -67,7 +69,7 @@ After=network-online.target
 [Service]
 User=root
 WorkingDirectory=/root/story_binary/geth_client
-ExecStart=/root/story_binary/geth_client/geth --iliad --syncmode full
+ExecStart=geth --iliad --syncmode full
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65535
@@ -85,6 +87,55 @@ else
 fi
 
 echo -e "${scss}\nNode installed${end}" && sleep 1
+
+
+
+echo -e "${fmt}\nInstalling additional dependencies${end}"
+
+sudo apt-get update
+sudo apt-get install wget lz4 aria2 pv jq -y
+
+echo -e "${fmt}\nInstalling snapshot${end}" && sleep 1
+
+sudo systemctl stop storyd
+sudo systemctl stop gethd
+
+cd $HOME
+rm -f Geth_snapshot.lz4
+if curl -s --head https://vps7.josephtran.xyz/Story/Geth_snapshot.lz4 | head -n 1 | grep "200" > /dev/null; then
+    echo "Snapshot found, downloading..."
+    aria2c -x 16 -s 16 https://vps7.josephtran.xyz/Story/Geth_snapshot.lz4 -o Geth_snapshot.lz4
+else
+    echo -e "${err}\nNo geth snapshot${end}"
+    return
+fi
+
+rm -f Story_snapshot.lz4
+if curl -s --head https://vps7.josephtran.xyz/Story/Story_snapshot.lz4 | head -n 1 | grep "200" > /dev/null; then
+    echo "Snapshot found, downloading..."
+    aria2c -x 16 -s 16 https://vps7.josephtran.xyz/Story/Story_snapshot.lz4 -o Story_snapshot.lz4
+else
+    echo -e "${err}\nNo story snapshot${end}"
+    return
+fi
+
+mv $HOME/.story/story/data/priv_validator_state.json $HOME/.story/priv_validator_state.json.backup
+
+rm -rf ~/.story/story/data
+rm -rf ~/.story/geth/iliad/geth/chaindata
+
+sudo mkdir -p /root/.story/story/data
+lz4 -d Story_snapshot.lz4 | pv | sudo tar xv -C /root/.story/story/
+
+sudo mkdir -p /root/.story/geth/iliad/geth/chaindata
+lz4 -d Geth_snapshot.lz4 | pv | sudo tar xv -C /root/.story/geth/iliad/geth/
+
+mv $HOME/.story/priv_validator_state.json.backup $HOME/.story/story/data/priv_validator_state.json
+
+sudo systemctl start storyd
+sudo systemctl start gethd
+
+echo -e "${scss}\nSnapshot installed${end}" && sleep 1
 
 }
 
